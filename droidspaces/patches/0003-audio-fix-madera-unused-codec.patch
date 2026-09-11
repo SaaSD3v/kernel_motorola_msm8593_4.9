@@ -1,7 +1,7 @@
 diff --git a/techpack/audio/asoc/msm8952-slimbus.c b/techpack/audio/asoc/msm8952-slimbus.c
 --- a/techpack/audio/asoc/msm8952-slimbus.c
 +++ b/techpack/audio/asoc/msm8952-slimbus.c
-@@ -3792,10 +3792,11 @@ static int msm8952_mclk_event(struct snd_soc_dapm_widget *w,
+@@ -3792,9 +3792,10 @@ static int msm8952_mclk_event(struct snd_soc_dapm_widget *w,
  		struct snd_kcontrol *kcontrol, int event)
  {
 -	struct snd_soc_codec *codec = snd_soc_dapm_to_codec(w->dapm);
