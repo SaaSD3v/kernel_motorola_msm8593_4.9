@@ -1,0 +1,134 @@
+name: Rebuild attributed Albus 4.9
+
+on:
+  push:
+    branches:
+      - ci-attribution-rebuild
+    paths:
+      - '.github/workflows/rebuild-attributed-4.9.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  rebuild:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout clean rebuild branch
+        uses: actions/checkout@v4
+        with:
+          ref: lineage-15.1-albus-droidspaces-4.9-rebuild
+          fetch-depth: 0
+
+      - name: Rebuild history with original authorship
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          BASE=9f7458ae94af543b42d9ce03ff66cb2e768acc25
+          BACKUP=lineage-15.1-albus-droidspaces-4.9-pre-attribution-backup
+          TARGET=lineage-15.1-albus-droidspaces-4.9-rebuild
+
+          test "$(git rev-parse HEAD)" = "$BASE"
+          git fetch origin "$BACKUP:refs/remotes/origin/$BACKUP"
+
+          # The Albus Linux 4.9 implementation remains the exact upstream
+          # history from marcost2/kernel_motorola_msm8593_4.9. Never squash it.
+          git merge-base --is-ancestor 3fda10145bcda087e8a59caee566a51623f754aa HEAD
+          git merge-base --is-ancestor 631742a7f686cd41fcfbcd0d90cfc61f7d26da38 HEAD
+          git merge-base --is-ancestor 9710a7cf95e8a938cf5553e776bad32a865302a6 HEAD
+
+          git config user.name "SaaSD3v"
+          git config user.email "hearesaas@gmail.com"
+
+          git show "origin/$BACKUP:droidspaces/patches/0001-cgroup-restore-prefixed-aliases.patch" > /tmp/0001.patch
+          git show "origin/$BACKUP:droidspaces/patches/0002-android-preserve-network-aid-capabilities.patch" > /tmp/0002.patch
+          git show "origin/$BACKUP:droidspaces/patches/0003-audio-fix-madera-unused-codec.patch" > /tmp/0003.patch
+          git show "origin/$BACKUP:droidspaces/patches/0004-nfc-pass-device-to-hw-check.patch" > /tmp/0004.patch
+          git show "origin/$BACKUP:droidspaces/albus-4.9.config" > /tmp/albus-4.9.config
+          git show "origin/$BACKUP:droidspaces/albus-4.9-network.config" > /tmp/albus-4.9-network.config
+
+          # Preserve the actual From:/Date:/Subject: metadata from the mbox patches.
+          # 0001 becomes a real commit authored by ravindu644, not by this CI.
+          git am /tmp/0001.patch
+          # 0002 becomes a real commit authored by SaaSD3v, matching its original source.
+          git am /tmp/0002.patch
+
+          apply_fragment() {
+            local f="$1"
+            while IFS= read -r line; do
+              case "$line" in
+                CONFIG_*=y)
+                  sym="${line#CONFIG_}"; sym="${sym%=y}"
+                  scripts/config --file arch/arm64/configs/albus_defconfig -e "$sym"
+                  ;;
+                CONFIG_*=m)
+                  sym="${line#CONFIG_}"; sym="${sym%=m}"
+                  scripts/config --file arch/arm64/configs/albus_defconfig -m "$sym"
+                  ;;
+                '# CONFIG_'*' is not set')
+                  sym="${line#\# CONFIG_}"; sym="${sym% is not set}"
+                  scripts/config --file arch/arm64/configs/albus_defconfig -d "$sym"
+                  ;;
+              esac
+            done < "$f"
+          }
+
+          apply_fragment /tmp/albus-4.9.config
+          apply_fragment /tmp/albus-4.9-network.config
+          git add arch/arm64/configs/albus_defconfig
+          git commit -m "albus: enable DroidSpaces container support on Linux 4.9" \
+            -m "Adapt the existing Albus 4.9 defconfig for DroidSpaces while keeping the upstream Albus bring-up history intact." \
+            -m "Based-on: SaaSD3v/android_kernel_motorola_msm8996@064c1c410c6f174e6f4c1d4462502cbca5b8d57d" \
+            -m "Based-on: SaaSD3v/android_kernel_motorola_msm8996@df88924352e30ea00bf25b59ffc1624fca657e1e" \
+            -m "Based-on: SaaSD3v/android_kernel_motorola_msm8996@516086ce0637a9e820793695a4dd8e3ff43e055b" \
+            -m "Based-on: SaaSD3v/android_kernel_motorola_msm8996@155561f0a3c1035128563a38670fed14fb26ee8c"
+
+          git apply --check /tmp/0003.patch
+          git apply /tmp/0003.patch
+          git add techpack/audio/asoc/msm8952-slimbus.c
+          git commit -m "ASoC: msm8952: avoid unused codec with Madera" \
+            -m "Integration/build fix found while validating the attributed Albus 4.9 DroidSpaces branch with Android GCC 4.9."
+
+          git apply --check /tmp/0004.patch
+          git apply /tmp/0004.patch
+          git add drivers/nfc/nq-nci.c
+          git commit -m "nfc: nq-nci: pass device context to hardware check" \
+            -m "Integration/build fix found while validating the attributed Albus 4.9 DroidSpaces branch with Android GCC 4.9."
+
+          cat > Documentation/albus-4.9-provenance.md <<'EOF'
+          # Moto Z2 Play (albus) Linux 4.9 provenance
+
+          This branch is based directly on the original public Linux 4.9 Albus tree:
+
+          - Upstream repository: `marcost2/kernel_motorola_msm8593_4.9`
+          - Upstream base used here: `9f7458ae94af543b42d9ce03ff66cb2e768acc25`
+          - The upstream history is retained as ancestry; it is not squashed or re-authored.
+
+          Key Albus 4.9 bring-up commits retained with their original author, **marcost2**:
+
+          - `3fda10145bcda087e8a59caee566a51623f754aa` — `arm64: Import albus dts`
+          - `631742a7f686cd41fcfbcd0d90cfc61f7d26da38` — `arm64: albus: Forward ports dtb's`
+          - `9710a7cf95e8a938cf5553e776bad32a865302a6` — `arm64: configs: Add albus defconfig`
+          - `13b91fee2d5723e6e27eda1c1b1d27ad62233513` — `arch: arm64: Update albus NFC pinctrl`
+
+          The tree also retains Motorola, Cirrus Logic, Qualcomm/Linux and other authors in the original commit history and `Signed-off-by` trailers. Their work must not be presented as SaaSD3v-authored work.
+
+          DroidSpaces-specific changes are layered on top. The cgroup noprefix adaptation is committed with the original patch author (`ravindu644 <droidcasts@protonmail.com>`). The Android network capability adaptation is committed with its original author (`SaaSD3v <hearesaas@gmail.com>`). Albus build fixes discovered during this integration are separate commits and are not attributed to the upstream Albus 4.9 authors.
+          EOF
+          sed -i 's/^          //' Documentation/albus-4.9-provenance.md
+          git add Documentation/albus-4.9-provenance.md
+          git commit -m "docs: credit original Albus Linux 4.9 authors and provenance"
+
+          git diff "$BASE"..HEAD --check
+          test ! -d drivers/kernelsu
+          ! grep -q '^CONFIG_KSU' arch/arm64/configs/albus_defconfig
+          grep -q '^CONFIG_CGROUP_DEVICE=y$' arch/arm64/configs/albus_defconfig
+          grep -q '^CONFIG_USER_NS=y$' arch/arm64/configs/albus_defconfig
+          grep -q '^# CONFIG_ANDROID_PARANOID_NETWORK is not set$' arch/arm64/configs/albus_defconfig
+
+          echo '=== Attributed commits above upstream base ==='
+          git log --reverse --format='%H | %an <%ae> | %s' "$BASE"..HEAD
+
+          git push --force-with-lease origin "HEAD:$TARGET"
