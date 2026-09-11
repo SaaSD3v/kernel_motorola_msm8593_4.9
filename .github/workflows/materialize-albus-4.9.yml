@@ -37,6 +37,20 @@ jobs:
             fi
           done
 
+          # The historical albus_defconfig had no trailing newline. Repair the
+          # one symbol that was concatenated during the first materialization.
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('arch/arm64/configs/albus_defconfig')
+          s = p.read_text()
+          bad = '# CONFIG_QMI_ENCDEC_DEBUG is not setCONFIG_IPC_NS=y'
+          if bad in s:
+              s = s.replace(bad, '# CONFIG_QMI_ENCDEC_DEBUG is not set\nCONFIG_IPC_NS=y', 1)
+          if not s.endswith('\n'):
+              s += '\n'
+          p.write_text(s)
+          PY
+
           apply_fragment() {
             local f="$1"
             while IFS= read -r line; do
@@ -112,6 +126,8 @@ jobs:
           grep -q '^CONFIG_CGROUP_DEVICE=y$' arch/arm64/configs/albus_defconfig
           grep -q '^CONFIG_USER_NS=y$' arch/arm64/configs/albus_defconfig
           grep -q '^CONFIG_PID_NS=y$' arch/arm64/configs/albus_defconfig
+          grep -q '^CONFIG_IPC_NS=y$' arch/arm64/configs/albus_defconfig
+          ! grep -q 'setCONFIG_IPC_NS' arch/arm64/configs/albus_defconfig
           grep -q '^# CONFIG_ANDROID_PARANOID_NETWORK is not set$' arch/arm64/configs/albus_defconfig
           grep -q 'DroidSpaces/LXC compatibility' kernel/cgroup.c
           grep -q '^#include <linux/android_aid.h>$' security/commoncap.c
@@ -125,7 +141,5 @@ jobs:
 
           git add arch/arm64/configs/albus_defconfig kernel/cgroup.c security/commoncap.c \
             techpack/audio/asoc/msm8952-slimbus.c drivers/nfc/nq-nci.c
-          git commit -m "droidspaces: materialize Albus 4.9 support and build fixes"
+          git commit -m "droidspaces: finalize Albus 4.9 materialized config"
           git push origin HEAD:lineage-15.1-albus-droidspaces-4.9
-
-          # Trigger note: source-only helper, target branch remains the product branch.
