@@ -127,3 +127,5 @@ jobs:
             techpack/audio/asoc/msm8952-slimbus.c drivers/nfc/nq-nci.c
           git commit -m "droidspaces: materialize Albus 4.9 support and build fixes"
           git push origin HEAD:lineage-15.1-albus-droidspaces-4.9
+
+          # Trigger note: source-only helper, target branch remains the product branch.
