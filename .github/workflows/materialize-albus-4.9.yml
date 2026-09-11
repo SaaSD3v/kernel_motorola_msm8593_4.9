@@ -1,0 +1,129 @@
+name: Materialize Albus 4.9 DroidSpaces
+
+on:
+  push:
+    branches:
+      - ci-materialize-4.9
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  materialize:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout target branch
+        uses: actions/checkout@v4
+        with:
+          ref: lineage-15.1-albus-droidspaces-4.9
+          fetch-depth: 20
+
+      - name: Materialize DroidSpaces source changes
+        shell: bash
+        run: |
+          set -euxo pipefail
+          git config user.name "SaaSD3v CI"
+          git config user.email "hearesaas@gmail.com"
+
+          for p in droidspaces/patches/*.patch; do
+            if git apply --check "$p"; then
+              git apply "$p"
+            elif git apply --reverse --check "$p"; then
+              echo "$p already materialized"
+            else
+              echo "Cannot apply or identify already-applied patch: $p" >&2
+              exit 1
+            fi
+          done
+
+          apply_fragment() {
+            local f="$1"
+            while IFS= read -r line; do
+              case "$line" in
+                CONFIG_*=y)
+                  sym="${line#CONFIG_}"; sym="${sym%=y}"
+                  scripts/config --file arch/arm64/configs/albus_defconfig -e "$sym"
+                  ;;
+                CONFIG_*=m)
+                  sym="${line#CONFIG_}"; sym="${sym%=m}"
+                  scripts/config --file arch/arm64/configs/albus_defconfig -m "$sym"
+                  ;;
+                '# CONFIG_'*' is not set')
+                  sym="${line#\# CONFIG_}"; sym="${sym% is not set}"
+                  scripts/config --file arch/arm64/configs/albus_defconfig -d "$sym"
+                  ;;
+              esac
+            done < "$f"
+          }
+
+          apply_fragment droidspaces/albus-4.9.config
+          apply_fragment droidspaces/albus-4.9-network.config
+
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path('techpack/audio/asoc/msm8952-slimbus.c')
+          s = p.read_text()
+          old = '''static int msm8952_mclk_event(struct snd_soc_dapm_widget *w,
+                  struct snd_kcontrol *kcontrol, int event)
+          {
+                  struct snd_soc_codec *codec = snd_soc_dapm_to_codec(w->dapm);
+                  pr_debug("%s: event = %d\\n", __func__, event);
+
+          #ifndef CONFIG_SND_SOC_MADERA
+                  switch (event) {
+          '''
+          new = '''static int msm8952_mclk_event(struct snd_soc_dapm_widget *w,
+                  struct snd_kcontrol *kcontrol, int event)
+          {
+                  pr_debug("%s: event = %d\\n", __func__, event);
+
+          #ifndef CONFIG_SND_SOC_MADERA
+                  struct snd_soc_codec *codec = snd_soc_dapm_to_codec(w->dapm);
+
+                  switch (event) {
+          '''
+          if old in s:
+              p.write_text(s.replace(old, new, 1))
+          elif 'struct snd_soc_codec *codec = snd_soc_dapm_to_codec(w->dapm);' in s and '#ifndef CONFIG_SND_SOC_MADERA\n\tstruct snd_soc_codec *codec' not in s:
+              raise SystemExit('audio fix context changed unexpectedly')
+
+          p = Path('drivers/nfc/nq-nci.c')
+          s = p.read_text()
+          old_sig = 'static int nfcc_hw_check(struct i2c_client *client, unsigned int enable_gpio)\n'
+          new_sig = 'static int nfcc_hw_check(struct i2c_client *client, unsigned int enable_gpio,\n\t\tstruct nqx_dev *nqx_dev)\n'
+          if old_sig in s:
+              s = s.replace(old_sig, new_sig, 1)
+          elif new_sig not in s:
+              raise SystemExit('NFC function signature context changed unexpectedly')
+
+          old_call = 'r = nfcc_hw_check(client , platform_data->en_gpio);'
+          new_call = 'r = nfcc_hw_check(client, platform_data->en_gpio, nqx_dev);'
+          if old_call in s:
+              s = s.replace(old_call, new_call, 1)
+          elif new_call not in s:
+              raise SystemExit('NFC call context changed unexpectedly')
+          p.write_text(s)
+          PY
+
+          git diff --check
+          grep -q '^CONFIG_CGROUP_PIDS=y$' arch/arm64/configs/albus_defconfig
+          grep -q '^CONFIG_CGROUP_DEVICE=y$' arch/arm64/configs/albus_defconfig
+          grep -q '^CONFIG_USER_NS=y$' arch/arm64/configs/albus_defconfig
+          grep -q '^CONFIG_PID_NS=y$' arch/arm64/configs/albus_defconfig
+          grep -q '^# CONFIG_ANDROID_PARANOID_NETWORK is not set$' arch/arm64/configs/albus_defconfig
+          grep -q 'DroidSpaces/LXC compatibility' kernel/cgroup.c
+          grep -q '^#include <linux/android_aid.h>$' security/commoncap.c
+          test ! -d drivers/kernelsu
+          ! grep -q '^CONFIG_KSU' arch/arm64/configs/albus_defconfig
+
+          if git diff --quiet; then
+            echo "Target branch is already materialized"
+            exit 0
+          fi
+
+          git add arch/arm64/configs/albus_defconfig kernel/cgroup.c security/commoncap.c \
+            techpack/audio/asoc/msm8952-slimbus.c drivers/nfc/nq-nci.c
+          git commit -m "droidspaces: materialize Albus 4.9 support and build fixes"
+          git push origin HEAD:lineage-15.1-albus-droidspaces-4.9
