@@ -583,7 +583,8 @@ static const struct file_operations nfc_dev_fops = {
 };
 
 /* Check for availability of NQ_ NFC controller hardware */
-static int nfcc_hw_check(struct i2c_client *client, unsigned int enable_gpio)
+static int nfcc_hw_check(struct i2c_client *client, unsigned int enable_gpio,
+		struct nqx_dev *nqx_dev)
 {
 	int ret = 0;
 
@@ -963,7 +964,7 @@ static int nqx_probe(struct i2c_client *client,
 	 * present before attempting further hardware initialisation.
 	 *
 	 */
-	r = nfcc_hw_check(client , platform_data->en_gpio);
+	r = nfcc_hw_check(client, platform_data->en_gpio, nqx_dev);
 	if (r) {
 		/* make sure NFCC is not enabled */
 		gpio_set_value(platform_data->en_gpio, 0);
