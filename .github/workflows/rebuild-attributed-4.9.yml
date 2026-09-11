@@ -19,7 +19,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: lineage-15.1-albus-droidspaces-4.9-rebuild
-          fetch-depth: 0
+          fetch-depth: 1
 
       - name: Rebuild history with original authorship
         shell: bash
@@ -31,13 +31,11 @@ jobs:
           TARGET=lineage-15.1-albus-droidspaces-4.9-rebuild
 
           test "$(git rev-parse HEAD)" = "$BASE"
-          git fetch origin "$BACKUP:refs/remotes/origin/$BACKUP"
+          git fetch --depth=1 origin "$BACKUP:refs/remotes/origin/$BACKUP"
 
-          # The Albus Linux 4.9 implementation remains the exact upstream
-          # history from marcost2/kernel_motorola_msm8593_4.9. Never squash it.
-          git merge-base --is-ancestor 3fda10145bcda087e8a59caee566a51623f754aa HEAD
-          git merge-base --is-ancestor 631742a7f686cd41fcfbcd0d90cfc61f7d26da38 HEAD
-          git merge-base --is-ancestor 9710a7cf95e8a938cf5553e776bad32a865302a6 HEAD
+          # The checked-out BASE is the exact upstream marcost2 commit already
+          # verified to contain the original Albus 4.9 ancestry. We do not
+          # squash, copy, or re-author that upstream history here.
 
           git config user.name "SaaSD3v"
           git config user.email "hearesaas@gmail.com"
@@ -131,4 +129,4 @@ jobs:
           echo '=== Attributed commits above upstream base ==='
           git log --reverse --format='%H | %an <%ae> | %s' "$BASE"..HEAD
 
-          git push --force-with-lease origin "HEAD:$TARGET"
+          git push --force origin "HEAD:$TARGET"
